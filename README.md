@@ -46,3 +46,6 @@ Test-time adaptation: **[DCTTA](https://github.com/tonia86/DCTTA)** (CVPR 2026).
 - [ ] Zero-shot evaluation of the five restorers, with DATUM as a reference (GPU)
 - [ ] Compute metrics: PSNR, SSIM, CW-SSIM, LPIPS (reference); NIQE, BRISQUE, MUSIQ (no reference)
 - [ ] Apply DCTTA to each restorer and re-evaluate
+
+## Next Steps
+Run each of the models with the fixed evaluation sets.
