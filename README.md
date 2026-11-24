@@ -49,3 +49,8 @@ Test-time adaptation: **[DCTTA](https://github.com/tonia86/DCTTA)** (CVPR 2026).
 
 ## Next Steps
 Run each of the models with the fixed evaluation sets.
+
+## Reflection
+A commit is a snapshot of the project repository at a specific point in time. 
+A developer would want to use a branch instead of editing main directly so the functionality on main is not affected and development can happen parallel.
+An issue is a bug to be fixed or a feature to be implemented, or something that hasn't been done yet. A pull request is a bug fix or a feature implementation that is waiting to be merged into the working main code. 
