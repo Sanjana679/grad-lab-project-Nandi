@@ -496,7 +496,7 @@ IMAGENET_DICT = dict(
     use_scale_shift_norm=True,
     dropout=0.0,
     resblock_updown=True,
-    use_fp16=True,
+    use_fp16=False,
     use_new_attention_order=False,
 
     diffusion_steps=1000,

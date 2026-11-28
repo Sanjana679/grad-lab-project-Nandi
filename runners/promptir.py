@@ -1,0 +1,146 @@
+import argparse
+import glob
+import os
+
+import lightning.pytorch as pl
+import numpy as np
+import torch
+import torch.nn.functional as F
+from net.model import PromptIR
+from PIL import Image
+from torch import nn
+from tqdm import tqdm
+from utils.image_io import save_image_tensor
+
+
+def pad_input(input_,img_multiple_of=8):
+        height,width = input_.shape[2], input_.shape[3]
+        H,W = ((height+img_multiple_of)//img_multiple_of)*img_multiple_of, ((width+img_multiple_of)//img_multiple_of)*img_multiple_of
+        padh = H-height if height%img_multiple_of!=0 else 0
+        padw = W-width if width%img_multiple_of!=0 else 0
+        input_ = F.pad(input_, (0,padw,0,padh), 'reflect')
+
+        return input_,height,width
+
+def tile_eval(model,input_,tile=128,tile_overlap =32):
+    b, c, h, w = input_.shape
+    tile = min(tile, h, w)
+    assert tile % 8 == 0, "tile size should be multiple of 8"
+
+    stride = tile - tile_overlap
+    h_idx_list = list(range(0, h-tile, stride)) + [h-tile]
+    w_idx_list = list(range(0, w-tile, stride)) + [w-tile]
+    E = torch.zeros(b, c, h, w).type_as(input_)
+    W = torch.zeros_like(E)
+
+    for h_idx in h_idx_list:
+        for w_idx in w_idx_list:
+            in_patch = input_[..., h_idx:h_idx+tile, w_idx:w_idx+tile]
+            out_patch = model(in_patch)
+            out_patch_mask = torch.ones_like(out_patch)
+
+            E[..., h_idx:(h_idx+tile), w_idx:(w_idx+tile)].add_(out_patch)
+            W[..., h_idx:(h_idx+tile), w_idx:(w_idx+tile)].add_(out_patch_mask)
+    restored = E.div_(W)
+
+    restored = torch.clamp(restored, 0, 1)
+    return restored
+class PromptIRModel(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.net = PromptIR(decoder=True)
+        self.loss_fn  = nn.L1Loss()
+    
+    def forward(self,x):
+        return self.net(x)
+    
+    def training_step(self, batch, batch_idx):
+        # training_step defines the train loop.
+        # it is independent of forward
+        ([clean_name, de_id], degrad_patch, clean_patch) = batch
+        restored = self.net(degrad_patch)
+
+        loss = self.loss_fn(restored,clean_patch)
+        # Logging to TensorBoard (if installed) by default
+        self.log("train_loss", loss)
+        return loss
+    
+    def lr_scheduler_step(self,scheduler,metric):
+        scheduler.step(self.current_epoch)
+        lr = scheduler.get_lr()
+    
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), lr=2e-4)
+        scheduler = LinearWarmupCosineAnnealingLR(optimizer=optimizer,warmup_epochs=15,max_epochs=150)
+
+        return [optimizer],[scheduler]
+
+
+IMG_EXTS = (".png", ".jpg", ".jpeg")
+
+def list_inputs(input_path):
+    """Accepts a glob ('.../*/turb/0.png'), a folder, or a single image."""
+    if os.path.isdir(input_path):
+        input_path = os.path.join(input_path, "*")
+    paths = sorted(p for p in glob.glob(input_path, recursive=True)
+                   if p.lower().endswith(IMG_EXTS))
+    if not paths:
+        raise FileNotFoundError(f"No images matched: {input_path}")
+    # root = shared parent of all inputs; outputs keep the structure below it
+    root = os.path.dirname(paths[0]) if len(paths) == 1 else os.path.commonpath(paths)
+    return paths, root
+
+def load_image(path):
+    img = np.asarray(Image.open(path).convert("RGB"), dtype=np.float32) / 255.0
+    return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0)   # [1,3,H,W] in [0,1]
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    # Input Parameters
+    parser.add_argument('--cuda', type=int, default=0)
+    parser.add_argument('--mode', type=int, default=3,
+                        help='0 for denoise, 1 for derain, 2 for dehaze, 3 for all-in-one')
+
+    parser.add_argument('--input_path', type=str, default="../../datasets/sanity_test/input/", help='glob, directory, or single image (quote globs!)')
+    parser.add_argument('--output_path', type=str, default="../../datasets/sanity_test/output/promptir/", help='output save path')
+    parser.add_argument('--ckpt_name', type=str, default="model.ckpt", help='checkpoint save path')
+    parser.add_argument('--tile', action='store_true', help="Set it to use tiling")
+    parser.add_argument('--tile_size', type=int, default=128, help='Tile size (e.g 720). None means testing on the original resolution image')
+    parser.add_argument('--tile_overlap', type=int, default=32, help='Overlapping of different tiles')
+    opt = parser.parse_args()
+
+
+    ckpt_path = "ckpt/" + opt.ckpt_name
+    dev_name = os.environ.get("DEVICE", "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device(dev_name)
+    print("device:", device)
+
+    np.random.seed(0)
+    torch.manual_seed(0)
+
+    # Make network
+    if torch.cuda.is_available():
+        torch.cuda.set_device(opt.cuda)
+    net = PromptIRModel.load_from_checkpoint(ckpt_path, map_location="cpu").to(device)
+    net.eval()
+
+    paths, root = list_inputs(opt.input_path)
+    print(f"{len(paths)} images (root: {root})")
+
+    with torch.no_grad():
+        for p in tqdm(paths):
+            x = load_image(p).to(device)
+            x, h, w = pad_input(x, img_multiple_of=16)
+
+            if opt.tile:
+                restored = tile_eval(net, x, tile=opt.tile_size, tile_overlap=opt.tile_overlap)
+            else:
+                restored = net(x)
+            restored = restored[:, :, :h, :w].clamp(0, 1)          # crop padding back off
+
+            # keep the input's structure below root: <group>/turb/0.png -> output/<group>/turb/0.png
+            rel = os.path.relpath(p, root)
+            out_file = os.path.join(opt.output_path, os.path.splitext(rel)[0] + ".png")
+            os.makedirs(os.path.dirname(out_file), exist_ok=True)
+            save_image_tensor(restored, out_file)

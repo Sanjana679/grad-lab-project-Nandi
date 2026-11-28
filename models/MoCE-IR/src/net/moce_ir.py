@@ -1,19 +1,14 @@
-from collections import OrderedDict
-from typing import Optional, List, Tuple
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 import math
-import random
 import numbers
-import numpy as np
 
+import torch
+import torch.nn.functional as F
 from einops import rearrange
 from einops.layers.torch import Rearrange
-from torch.distributions.normal import Normal
 from fvcore.nn import FlopCountAnalysis, flop_count_table
+from torch import nn
+from torch.distributions.normal import Normal
 
 
 ##########################################################################
@@ -56,7 +51,7 @@ def softmax_with_temperature(logits, temperature=1.0):
     # Apply softmax
     return F.softmax(scaled_logits, dim=-1)
 
-class SparseDispatcher(object):
+class SparseDispatcher:
     def __init__(self, num_experts, gates):
         """Create a SparseDispatcher."""
 
@@ -130,7 +125,7 @@ def to_4d(x,h,w):
 
 class BiasFree_LayerNorm(nn.Module):
     def __init__(self, normalized_shape):
-        super(BiasFree_LayerNorm, self).__init__()
+        super().__init__()
         if isinstance(normalized_shape, numbers.Integral):
             normalized_shape = (normalized_shape,)
         normalized_shape = torch.Size(normalized_shape)
@@ -146,7 +141,7 @@ class BiasFree_LayerNorm(nn.Module):
 
 class WithBias_LayerNorm(nn.Module):
     def __init__(self, normalized_shape):
-        super(WithBias_LayerNorm, self).__init__()
+        super().__init__()
         if isinstance(normalized_shape, numbers.Integral):
             normalized_shape = (normalized_shape,)
         normalized_shape = torch.Size(normalized_shape)
@@ -164,7 +159,7 @@ class WithBias_LayerNorm(nn.Module):
 
 class LayerNorm(nn.Module):
     def __init__(self, dim, LayerNorm_type):
-        super(LayerNorm, self).__init__()
+        super().__init__()
         self.dim = dim
         if LayerNorm_type =='BiasFree':
             self.body = BiasFree_LayerNorm(dim)
@@ -204,7 +199,7 @@ class HighPassConv2d(nn.Module):
 ## Gated-Dconv Feed-Forward Network (GDFN)
 class FeedForward(nn.Module):
     def __init__(self, dim, ffn_expansion_factor, bias):
-        super(FeedForward, self).__init__()
+        super().__init__()
 
         hidden_features = int(dim*ffn_expansion_factor)
         self.project_in = nn.Conv2d(dim, hidden_features*2, kernel_size=1, bias=bias)
@@ -222,7 +217,7 @@ class FeedForward(nn.Module):
 ## Multi-DConv Head Transposed Self-Attention
 class Attention(nn.Module):
     def __init__(self, dim, num_heads, bias):
-        super(Attention, self).__init__()
+        super().__init__()
         self.num_heads = num_heads
         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
 
@@ -255,7 +250,7 @@ class Attention(nn.Module):
     
 class CrossAttention(nn.Module):
     def __init__(self, dim, num_heads, bias):
-        super(CrossAttention, self).__init__()
+        super().__init__()
         self.num_heads = num_heads
         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
 
@@ -293,7 +288,7 @@ class CrossAttention(nn.Module):
 ## Self-Attention in Fourier Domain
 class FFTAttention(nn.Module):
     def __init__(self, dim: int, **kwargs):
-        super(FFTAttention, self).__init__()
+        super().__init__()
 
         self.patch_size = kwargs["patch_size"]
         
@@ -329,12 +324,15 @@ class FFTAttention(nn.Module):
         q = self.pad_and_rearrange(q)
         k = self.pad_and_rearrange(k)
             
-        q_fft = torch.fft.rfft2(q.float())
-        k_fft = torch.fft.rfft2(k.float())
+        # MPS is unreliable with complex FFTs on 6-D tensors: do this block on CPU, then move back
+        dev = q.device
+        fft_dev = torch.device("cpu") if dev.type == "mps" else dev
+        q_fft = torch.fft.rfft2(q.float().to(fft_dev))
+        k_fft = torch.fft.rfft2(k.float().to(fft_dev))
         out = q_fft * k_fft
         out = torch.fft.irfft2(out, s=(self.patch_size, self.patch_size))
         
-        out = self.rearrange_to_original(out, (h, w))
+        out = self.rearrange_to_original(out, (h, w)).to(dev)
         
         out = self.norm(out)
         out = out * v
@@ -348,7 +346,7 @@ class FFTAttention(nn.Module):
 ## Adapter Block    
 class ModExpert(nn.Module):
     def __init__(self, dim: int, rank: int, func: nn.Module, depth: int, patch_size: int, kernel_size:int):
-        super(ModExpert, self).__init__()
+        super().__init__()
         
         self.depth = depth
         self.proj = nn.ModuleList([
@@ -469,7 +467,7 @@ class AdapterLayer(nn.Module):
 
 class RoutingFunction(nn.Module):
     def __init__(self, dim, freq_dim, num_experts, k, complexity, use_complexity_bias: bool = True, complexity_scale: str="max"):
-        super(RoutingFunction, self).__init__()
+        super().__init__()
         
         self.gate = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
@@ -616,7 +614,7 @@ class DecoderBlock(nn.Module):
 ## Encoder Residual Group
 class EncoderResidualGroup(nn.Module):
     def __init__(self, 
-                 dim: int, num_heads: List[int], num_blocks: int, ffn_expansion: int, LayerNorm_type: str, bias: bool):
+                 dim: int, num_heads: list[int], num_blocks: int, ffn_expansion: int, LayerNorm_type: str, bias: bool):
         super().__init__()
 
         self.loss = None   
@@ -642,7 +640,7 @@ class EncoderResidualGroup(nn.Module):
 ## Decoder Residual Group
 class DecoderResidualGroup(nn.Module):
     def __init__(self, 
-                 dim: int, num_heads: List[int], num_blocks: int, ffn_expansion: int, LayerNorm_type: str, bias: bool, complexity_scale=None,
+                 dim: int, num_heads: list[int], num_blocks: int, ffn_expansion: int, LayerNorm_type: str, bias: bool, complexity_scale=None,
                  rank=None, num_experts=None, expert_layer=None, top_k=None, depth_type=None, stage_depth=None, rank_type=None, freq_dim:int=128, with_complexity: bool=False):
         super().__init__()
 
@@ -675,7 +673,7 @@ class DecoderResidualGroup(nn.Module):
 ## Overlapped image patch embedding with 3x3 Conv
 class OverlapPatchEmbed(nn.Module):
     def __init__(self, in_c=3, embed_dim=48, bias=False):
-        super(OverlapPatchEmbed, self).__init__()
+        super().__init__()
 
         self.proj = nn.Conv2d(in_c, embed_dim, kernel_size=3, stride=1, padding=1, bias=bias)
 
@@ -689,7 +687,7 @@ class OverlapPatchEmbed(nn.Module):
 ## Resizing modules
 class Downsample(nn.Module):
     def __init__(self, n_feat):
-        super(Downsample, self).__init__()
+        super().__init__()
 
         self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat//2, kernel_size=3, stride=1, padding=1, bias=False),
                                   nn.PixelUnshuffle(2))
@@ -700,7 +698,7 @@ class Downsample(nn.Module):
 
 class Upsample(nn.Module):
     def __init__(self, n_feat):
-        super(Upsample, self).__init__()
+        super().__init__()
 
         self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat*2, kernel_size=3, stride=1, padding=1, bias=False),
                                   nn.PixelShuffle(2))
@@ -717,7 +715,7 @@ class FrequencyEmbedding(nn.Module):
     Embeds magnitude and phase features extracted from the bottleneck of the U-Net.
     """
     def __init__(self, dim):
-        super(FrequencyEmbedding, self).__init__()
+        super().__init__()
         self.high_conv = nn.Sequential(
             HighPassConv2d(dim, freeze=True),
             nn.GELU())
@@ -760,7 +758,7 @@ class MoCEIR(nn.Module):
                 with_complexity=False,
                 complexity_scale="max",
                 ):
-        super(MoCEIR, self).__init__()
+        super().__init__()
         
         self.levels = levels
         self.num_blocks = num_blocks

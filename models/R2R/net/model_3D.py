@@ -1,9 +1,17 @@
+import os
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from net.feature_bank_3D import DegradationMemory
-import matplotlib.pyplot as plt
-import os
+from torch import nn
+
+DEVICE = torch.device(os.environ.get("DEVICE", "mps" if torch.backends.mps.is_available() else "cpu"))
+
+def area_resize(x, size):
+    """F.interpolate(mode='area'); falls back to CPU on MPS when sizes don't divide evenly."""
+    if x.device.type == "mps" and (x.shape[-2] % size[0] or x.shape[-1] % size[1]):
+        return F.interpolate(x.cpu(), size=size, mode="area").to(x.device)
+    return F.interpolate(x, size=size, mode="area")
 class AvgPool2d(nn.Module):
     def __init__(self, kernel_size=None, base_size=None, auto_pad=True, fast_imp=False, train_size=None):
         super().__init__()
@@ -18,9 +26,7 @@ class AvgPool2d(nn.Module):
         self.train_size = train_size
 
     def extra_repr(self) -> str:
-        return 'kernel_size={}, base_size={}, stride={}, fast_imp={}'.format(
-            self.kernel_size, self.base_size, self.kernel_size, self.fast_imp
-        )
+        return f'kernel_size={self.kernel_size}, base_size={self.base_size}, stride={self.kernel_size}, fast_imp={self.fast_imp}'
 
     def forward(self, x):
         if self.kernel_size is None and self.base_size:
@@ -78,11 +84,11 @@ def replace_layers(model, base_size, train_size, fast_imp, **kwargs):
             assert m.output_size == 1
             setattr(model, n, pool)
 
-class Local_Base():
+class Local_Base:
     def convert(self, *args, train_size, **kwargs):
-        self = self.cuda()
+        self = self.to(DEVICE)
         replace_layers(self, *args, train_size=train_size, **kwargs)
-        imgs = torch.rand(train_size).cuda()
+        imgs = torch.rand(train_size).to(DEVICE)
         with torch.no_grad():
             self.forward(imgs, interact_label=[0])
 class LayerNormFunction(torch.autograd.Function):
@@ -115,7 +121,7 @@ class LayerNormFunction(torch.autograd.Function):
 class LayerNorm2d(nn.Module):
 
     def __init__(self, channels, eps=1e-6):
-        super(LayerNorm2d, self).__init__()
+        super().__init__()
         self.register_parameter('weight', nn.Parameter(torch.ones(channels)))
         self.register_parameter('bias', nn.Parameter(torch.zeros(channels)))
         self.eps = eps
@@ -223,7 +229,7 @@ class NAFKeyEncoder(nn.Module):
 
 class Classifier(nn.Module):
     def __init__(self, in_channels=512, num_classes=5):
-        super(Classifier, self).__init__()
+        super().__init__()
         self.avgpool = nn.AdaptiveAvgPool2d(1)
 
         self.fc = nn.Sequential(
@@ -447,16 +453,18 @@ class R2R(nn.Module):
                         gt_ids.append(id.item())
                 gt_ids = torch.tensor(gt_ids, device=ids.device)
                 interact_label = gt_ids
-            qk_ = F.interpolate(qk, size=(8, 8), mode="area",
-                                )
+            # qk_ = F.interpolate(qk, size=(8, 8), mode="area")
+            # scores, read_out = self.dm.get_deg_prompt(qk_, interact_label=interact_label)
+            # read_out = F.interpolate(read_out, size=(qv.shape[-2], qv.shape[-1]),
+            #                          mode='area',
+            #                          )
+            qk_ = area_resize(qk, (8, 8))
             scores, read_out = self.dm.get_deg_prompt(qk_, interact_label=interact_label)
-            read_out = F.interpolate(read_out, size=(qv.shape[-2], qv.shape[-1]),
-                                     mode='area',
-                                     )
+            read_out = area_resize(read_out, (qv.shape[-2], qv.shape[-1]))
 
         if self.is_train and scores is None:
-            scores = torch.ones((qk.shape[0], self.num_classes)).cuda()
-            read_out = torch.zeros_like(qv).cuda()
+            scores = torch.ones((qk.shape[0], self.num_classes), device=qk.device)
+            read_out = torch.zeros_like(qv).to(DEVICE)
 
         interleaved = torch.zeros(B, 2 * x.shape[1], x.shape[2], x.shape[3]).to(x.device)
         interleaved[:, 0::2, :, :] = qv
@@ -487,7 +495,7 @@ class R2RTest(nn.Module):
     def __init__(self, ckpt_path, prompts_path, prompts_name, train_mode="finetune"):
         super().__init__()
         net = R2R(opt=None, is_train=False, train_mode=train_mode)
-        state_dict = torch.load(ckpt_path+prompts_name+".ckpt")['state_dict']
+        state_dict = torch.load(ckpt_path+prompts_name+".ckpt", map_location="cpu")['state_dict']
         state = {}
         for key in state_dict.keys():
             state[key[4:]] = state_dict[key]

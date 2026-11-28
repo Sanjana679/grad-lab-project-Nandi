@@ -1,14 +1,17 @@
-import random
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import math
 import os
-import numpy as np
+import random
 from typing import Literal
+
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn.functional as F
 from sklearn.manifold import TSNE
+from torch import nn
+
+DEVICE = torch.device(os.environ.get("DEVICE", "mps" if torch.backends.mps.is_available() else "cpu"))
+
 class LayerNorm3D(nn.Module):
     """
     LayerNorm for 5D features.
@@ -389,14 +392,14 @@ class DegradationMemory(nn.Module):
             kv_compress = self.T_max - self.update_step + 1
         else:
             kv_compress = self.T_max
-        self.denoise_bank_key = [t.cuda().float() if not amp else t.cuda() for t in torch.load(os.path.join(pair_dir, "denoise_key.pt"))[:kv_compress]]
-        self.denoise_bank_value = [t.cuda().float() if not amp else t.cuda() for t in torch.load(os.path.join(pair_dir, "denoise_value.pt"))[:kv_compress]]
-        self.derain_bank_key = [t.cuda().float() if not amp else t.cuda() for t in torch.load(os.path.join(pair_dir, "derain_key.pt"))[:kv_compress]]
-        self.derain_bank_value = [t.cuda().float() if not amp else t.cuda() for t in torch.load(os.path.join(pair_dir, "derain_value.pt"))[:kv_compress]]
-        self.dehaze_bank_key = [t.cuda().float() if not amp else t.cuda() for t in torch.load(os.path.join(pair_dir, "dehaze_key.pt"))[:kv_compress]]
-        self.dehaze_bank_value = [t.cuda().float() if not amp else t.cuda() for t in torch.load(os.path.join(pair_dir, "dehaze_value.pt"))[:kv_compress]]
+        self.denoise_bank_key = [t.to(DEVICE).float() if not amp else t.to(DEVICE) for t in torch.load(os.path.join(pair_dir, "denoise_key.pt"), map_location="cpu")[:kv_compress]]
+        self.denoise_bank_value = [t.to(DEVICE).float() if not amp else t.to(DEVICE) for t in torch.load(os.path.join(pair_dir, "denoise_value.pt"), map_location="cpu")[:kv_compress]]
+        self.derain_bank_key = [t.to(DEVICE).float() if not amp else t.to(DEVICE) for t in torch.load(os.path.join(pair_dir, "derain_key.pt"), map_location="cpu")[:kv_compress]]
+        self.derain_bank_value = [t.to(DEVICE).float() if not amp else t.to(DEVICE) for t in torch.load(os.path.join(pair_dir, "derain_value.pt"), map_location="cpu")[:kv_compress]]
+        self.dehaze_bank_key = [t.to(DEVICE).float() if not amp else t.to(DEVICE) for t in torch.load(os.path.join(pair_dir, "dehaze_key.pt"), map_location="cpu")[:kv_compress]]
+        self.dehaze_bank_value = [t.to(DEVICE).float() if not amp else t.to(DEVICE) for t in torch.load(os.path.join(pair_dir, "dehaze_value.pt"), map_location="cpu")[:kv_compress]]
 
-        print(f"loaded {str(pair_dir)} prompts")
+        print(f"loaded {pair_dir!s} prompts")
 
 
     def contrastive_divergence_loss(self, feature_lists, temperature=0.07):

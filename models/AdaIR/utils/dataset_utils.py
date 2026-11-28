@@ -364,7 +364,7 @@ class TestSpecificDataset(Dataset):
         super(TestSpecificDataset, self).__init__()
         self.args = args
         self.degraded_ids = []
-        self._init_clean_ids(args.test_path)
+        self._init_clean_ids(args.input_path)
 
         self.toTensor = ToTensor()
 

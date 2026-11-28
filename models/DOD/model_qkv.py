@@ -1,14 +1,18 @@
-import torch
 import os
+from typing import Any
+
 import requests
+import torch
+from diffusers import DDPMScheduler
 from tqdm import tqdm
-from diffusers import DDPMScheduler, EulerDiscreteScheduler
-from typing import Any, Optional, Union
+
+DEVICE = torch.device(os.environ.get("DEVICE", "mps" if torch.backends.mps.is_available() else "cpu"))
 
 def make_1step_sched(pretrained_path):
     noise_scheduler_1step = DDPMScheduler.from_pretrained(pretrained_path, subfolder="scheduler")
-    noise_scheduler_1step.set_timesteps(1, device="cuda")
-    noise_scheduler_1step.alphas_cumprod = noise_scheduler_1step.alphas_cumprod.cuda()
+    noise_scheduler_1step.set_timesteps(1, device=DEVICE)
+    # noise_scheduler_1step.alphas_cumprod = noise_scheduler_1step.alphas_cumprod.cuda()
+    noise_scheduler_1step.alphas_cumprod = noise_scheduler_1step.alphas_cumprod.to(DEVICE)
     return noise_scheduler_1step
 
 

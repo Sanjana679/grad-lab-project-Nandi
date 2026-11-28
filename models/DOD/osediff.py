@@ -1,25 +1,29 @@
 import os
 import re
 import sys
+
 sys.path.append(os.getcwd())
-import yaml
 import copy
+
 import torch
-import torch.nn as nn
+from torch import nn
+
+DEVICE = torch.device(os.environ.get("DEVICE", "mps" if torch.backends.mps.is_available() else "cpu"))
+import sys
+
 import torch.nn.functional as F
-from transformers import AutoTokenizer, CLIPTextModel, CLIPVisionModel
 from diffusers import DDPMScheduler
+from model_qkv import make_1step_sched, my_lora_fwd_sft
 from models.autoencoder_kl import AutoencoderKL
 from models.unet_2d_condition import UNet2DConditionModel
 from peft import LoraConfig
-from model_qkv import make_1step_sched, my_lora_fwd, my_lora_fwd_sft
+from transformers import AutoTokenizer, CLIPTextModel
 
-from my_utils.vaehook import VAEHook, perfcount
-import sys
 sys.path.insert(0, './NAFNett')
 # from NAFNett.basicsr.models.archs.arch_util import default_init_weights
-from NAFNett.basicsr.models.archs.arch_util import default_init_weights, make_layer, pixel_unshuffle
 from basicsr.archs.rrdbnet_arch import RRDB
+from NAFNett.basicsr.models.archs.arch_util import default_init_weights, make_layer
+
 
 def get_layer_number(module_name):
     base_layers = {
@@ -52,9 +56,9 @@ def nonlinearity(x):
 def Normalize(in_channels, num_groups=32):
     return torch.nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=1e-6, affine=True)
 
-class ResBlock(nn.Module):
+class ResBlock(torch.nn.Module):
     def __init__(self, in_channels, out_channels=None):
-        super(ResBlock, self).__init__()
+        super().__init__()
         self.in_channels = in_channels
         self.out_channels = in_channels if out_channels is None else out_channels
         self.norm1 = Normalize(in_channels)
@@ -176,9 +180,7 @@ def initialize_vae(args):
         if "bias" in n or "norm" in n: 
             continue
         for pattern in l_grep:
-            if pattern in n and ("encoder" in n):
-                l_target_modules_encoder.append(n.replace(".weight",""))
-            elif ('quant_conv' in n) and ('post_quant_conv' not in n):
+            if pattern in n and ("encoder" in n) or ('quant_conv' in n) and ('post_quant_conv' not in n):
                 l_target_modules_encoder.append(n.replace(".weight",""))
     
     lora_conf_encoder = LoraConfig(r=args.lora_rank, init_lora_weights="gaussian",target_modules=l_target_modules_encoder)
@@ -702,13 +704,13 @@ class OSEDiff_test(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = DEVICE
         self.weight_dtype = torch.float16 if args.mixed_precision == "fp16" else torch.float32
         self.latent_tiled_size = args.latent_tiled_size
         self.latent_tiled_overlap = args.latent_tiled_overlap
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.pretrained_model_name_or_path, subfolder="tokenizer")
-        self.text_encoder = CLIPTextModel.from_pretrained(self.args.pretrained_model_name_or_path, subfolder="text_encoder").cuda()
+        self.text_encoder = CLIPTextModel.from_pretrained(self.args.pretrained_model_name_or_path, subfolder="text_encoder").to(DEVICE)
         self.sched = make_1step_sched(self.args.pretrained_model_name_or_path)
         self.guidance_scale = 1.07
         self.lora_rank_unet = self.args.lora_rank
@@ -746,7 +748,7 @@ class OSEDiff_test(torch.nn.Module):
         self.unet_block_embeddings = nn.Embedding(10, block_embedding_dim).to(self.device, dtype=self.weight_dtype)
 
         if self.args.osediff_path is not None:
-            sd = torch.load(self.args.osediff_path, map_location=self.device)
+            sd = torch.load(self.args.osediff_path, map_location="cpu")
             vae_lora_config = LoraConfig(r=sd["rank_vae"], init_lora_weights="gaussian", target_modules=sd["vae_lora_target_modules"])
             vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
             _sd_vae = vae.state_dict()
@@ -812,15 +814,15 @@ class OSEDiff_test(torch.nn.Module):
 
 
         vae.encoder.forward = my_vae_encoder_fwd.__get__(vae.encoder, vae.encoder.__class__)
-        vae_decoder.decoder.sft_blocks_1 = Fuse_sft_block_RRDB(512, 512).cuda().requires_grad_(True)
-        vae_decoder.decoder.sft_blocks_2 = Fuse_sft_block_RRDB(512, 512).cuda().requires_grad_(True)
-        vae_decoder.decoder.sft_blocks_3 = Fuse_sft_block_RRDB(512, 512).cuda().requires_grad_(True)
-        vae_decoder.decoder.sft_blocks_4 = Fuse_sft_block_RRDB(256, 256).cuda().requires_grad_(True)
+        vae_decoder.decoder.sft_blocks_1 = Fuse_sft_block_RRDB(512, 512).to(DEVICE).requires_grad_(True)
+        vae_decoder.decoder.sft_blocks_2 = Fuse_sft_block_RRDB(512, 512).to(DEVICE).requires_grad_(True)
+        vae_decoder.decoder.sft_blocks_3 = Fuse_sft_block_RRDB(512, 512).to(DEVICE).requires_grad_(True)
+        vae_decoder.decoder.sft_blocks_4 = Fuse_sft_block_RRDB(256, 256).to(DEVICE).requires_grad_(True)
 
-        vae_decoder.decoder.skip_conv_1 = torch.nn.Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
-        vae_decoder.decoder.skip_conv_2 = torch.nn.Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
-        vae_decoder.decoder.skip_conv_3 = torch.nn.Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
-        vae_decoder.decoder.skip_conv_4 = torch.nn.Conv2d(128, 256, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda()
+        vae_decoder.decoder.skip_conv_1 = torch.nn.Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).to(DEVICE)
+        vae_decoder.decoder.skip_conv_2 = torch.nn.Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).to(DEVICE)
+        vae_decoder.decoder.skip_conv_3 = torch.nn.Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).to(DEVICE)
+        vae_decoder.decoder.skip_conv_4 = torch.nn.Conv2d(128, 256, kernel_size=(1, 1), stride=(1, 1), bias=False).to(DEVICE)
         vae_decoder.decoder.ignore_skip = False
         vae_decoder.decoder.forward = my_vae_decoder_fwd.__get__(vae_decoder.decoder, vae_decoder.decoder.__class__)
         vae_decoder.decoder.gamma = 1
@@ -832,7 +834,7 @@ class OSEDiff_test(torch.nn.Module):
         self.unet, self.vae = unet, vae
         self.unet.to(self.device, dtype=self.weight_dtype)
         self.vae.to(self.device, dtype=self.weight_dtype)
-        self.timesteps = torch.tensor([999], device="cuda").long()
+        self.timesteps = torch.tensor([999], device=DEVICE).long()
         self.text_encoder.requires_grad_(False)
 
         for param in self.text_encoder.parameters():
@@ -918,7 +920,7 @@ class OSEDiff_test(torch.nn.Module):
             _, _, h, w = lq_latent.size()
             tile_size, tile_overlap = (self.latent_tiled_size, self.latent_tiled_overlap)
             if h * w <= tile_size * tile_size:
-                print(f"[Tiled Latent]: the input size is tiny and unnecessary to tile.")
+                print("[Tiled Latent]: the input size is tiny and unnecessary to tile.")
                 model_pred = self.unet(lq_latent, self.timesteps, encoder_hidden_states=prompt_embeds).sample
             else:
                 print(f"[Tiled Latent]: the input size is {c_t.shape[-2]}x{c_t.shape[-1]}, need to tiled")
@@ -1011,8 +1013,8 @@ class OSEDiff_test(torch.nn.Module):
     
     def _gaussian_weights(self, tile_width, tile_height, nbatches):
         """Generates a gaussian mask of weights for tile contributions"""
-        from numpy import pi, exp, sqrt
         import numpy as np
+        from numpy import exp, pi, sqrt
 
         latent_width = tile_width
         latent_height = tile_height

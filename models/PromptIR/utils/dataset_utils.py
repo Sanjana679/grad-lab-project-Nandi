@@ -1,20 +1,19 @@
 import os
 import random
-import copy
-from PIL import Image
+
 import numpy as np
-
-from torch.utils.data import Dataset
-from torchvision.transforms import ToPILImage, Compose, RandomCrop, ToTensor
 import torch
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision.transforms import Compose, RandomCrop, ToPILImage, ToTensor
 
-from utils.image_utils import random_augmentation, crop_img
 from utils.degradation_utils import Degradation
+from utils.image_utils import crop_img, random_augmentation
 
-    
+
 class PromptTrainDataset(Dataset):
     def __init__(self, args):
-        super(PromptTrainDataset, self).__init__()
+        super().__init__()
         self.args = args
         self.rs_ids = []
         self.hazy_ids = []
@@ -70,7 +69,7 @@ class PromptTrainDataset(Dataset):
             self.s50_counter = 0
 
         self.num_clean = len(clean_ids)
-        print("Total Denoise Ids : {}".format(self.num_clean))
+        print(f"Total Denoise Ids : {self.num_clean}")
 
     def _init_hazy_ids(self):
         temp_ids = []
@@ -81,7 +80,7 @@ class PromptTrainDataset(Dataset):
         self.hazy_counter = 0
         
         self.num_hazy = len(self.hazy_ids)
-        print("Total Hazy Ids : {}".format(self.num_hazy))
+        print(f"Total Hazy Ids : {self.num_hazy}")
 
     def _init_rs_ids(self):
         temp_ids = []
@@ -92,7 +91,7 @@ class PromptTrainDataset(Dataset):
 
         self.rl_counter = 0
         self.num_rl = len(self.rs_ids)
-        print("Total Rainy Ids : {}".format(self.num_rl))
+        print(f"Total Rainy Ids : {self.num_rl}")
     
 
     def _crop_patch(self, img_1, img_2):
@@ -135,11 +134,7 @@ class PromptTrainDataset(Dataset):
         de_id = sample["de_type"]
 
         if de_id < 3:
-            if de_id == 0:
-                clean_id = sample["clean_id"]
-            elif de_id == 1:
-                clean_id = sample["clean_id"]
-            elif de_id == 2:
+            if de_id == 0 or de_id == 1 or de_id == 2:
                 clean_id = sample["clean_id"]
 
             clean_img = crop_img(np.array(Image.open(clean_id).convert('RGB')), base=16)
@@ -177,7 +172,7 @@ class PromptTrainDataset(Dataset):
 
 class DenoiseTestDataset(Dataset):
     def __init__(self, args):
-        super(DenoiseTestDataset, self).__init__()
+        super().__init__()
         self.args = args
         self.clean_ids = []
         self.sigma = 15
@@ -239,7 +234,7 @@ class DenoiseTestDataset(Dataset):
 
 class DerainDehazeDataset(Dataset):
     def __init__(self, args, task="derain",addnoise = False,sigma = None):
-        super(DerainDehazeDataset, self).__init__()
+        super().__init__()
         self.ids = []
         self.task_idx = 0
         self.args = args
@@ -302,10 +297,10 @@ class DerainDehazeDataset(Dataset):
 
 class TestSpecificDataset(Dataset):
     def __init__(self, args):
-        super(TestSpecificDataset, self).__init__()
+        super().__init__()
         self.args = args
         self.degraded_ids = []
-        self._init_clean_ids(args.test_path)
+        self._init_clean_ids(args.input_path)
 
         self.toTensor = ToTensor()
 
@@ -325,7 +320,7 @@ class TestSpecificDataset(Dataset):
             else:
                 raise Exception('Please pass an Image file')
             self.degraded_ids = name_list
-        print("Total Images : {}".format(name_list))
+        print(f"Total Images : {name_list}")
 
         self.num_img = len(self.degraded_ids)
 
