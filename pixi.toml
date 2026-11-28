@@ -39,6 +39,7 @@ setuptools = "<70"
 basicsr = "==1.4.2"
 
 [feature.moceir.dependencies]
+python = "3.10.*"
 pytorch = "2.5.*"
 opencv = "*"
 scikit-image = "*"
@@ -51,7 +52,6 @@ lightning = "2.4.*"
 einops = "*"
 torchvision = "*"
 tqdm = "*"
-setuptools = "<70"      # Lightning 2.0 needs pkg_resources, which newer setuptools dropped
 pillow = "*"
 
 [feature.promptir.dependencies]
@@ -89,8 +89,8 @@ run-promptir = { cmd = "python ../../runners/promptir.py", cwd = "models/PromptI
 run-r2r = { cmd = "python ../../runners/r2r.py", cwd = "models/R2R", env = { PYTHONPATH = ".", DEVICE = "mps" } }
 
 [environments]
-promptir = ["promptir"]
-adair = ["adair"] # same dependencies; pixi shares the installed packages
-moceir = ["moceir"]   # PromptIR's dependencies + the extras above
-dod = ["dod"]
-r2r = ["promptir", "r2r"]
+promptir = ["promptir"]          # torch 2.0 / Lightning 2.0 (era of the checkpoint); runs on MPS as-is
+adair    = ["adair"]             # torch 2.5: torch 2.0's MPS has no complex dtypes (AdaIR's FFT)
+moceir   = ["moceir"]            # torch 2.5; FFT + patch reshape run on CPU (see moce_ir.py ~L330)
+dod      = ["dod"]               # torch 2.5; checkpoints loaded with map_location="cpu" (MPS copy bug)
+r2r      = ["promptir", "r2r"]   # torch 2.0 + R2R extras; area_resize moves two resizes to CPU
