@@ -31,11 +31,11 @@ DATUM is trained on ATSyn, so OTIS is the fairer test of generalization.
 ### Pretrained Models to Download
 | Model | Venue | Weights | Notes |
 |---|---|---|---|
-| [PromptIR](https://github.com/va1shn9v/PromptIR) | NeurIPS 2023 | 3-task all-in-one checkpoint ([Drive](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view)) | Runs on MPS |
-| [AdaIR](https://github.com/c-yn/AdaIR) | ICLR 2025 | 3-task checkpoint ([Drive](https://drive.google.com/drive/folders/1x2LN4kWkO3S65jJlH-1INUFiYt8KFzPH)) | CPU on Mac (MPS lacks complex FFT in torch 2.0) |
-| [MoCE-IR](https://github.com/eduardzamfir/MoCE-IR) | CVPR 2025 | `MoCE_IR_AIO3/last.ckpt` ([Drive](https://drive.google.com/drive/folders/1pQBceb8cCPdIzbqbNNGqV5qNXzzqL4uK)) | |
-| [DOD](https://github.com/tonia86/DOD) | AAAI 2026 | `stage1.pkl`, `stage2.pkl` ([Drive](https://drive.google.com/drive/folders/1O0BKy9qfWKwJrLwkIl3mG9xx_Z7NLkm-)); SD 2.1-base ([HuggingFace](https://huggingface.co/Manojb/stable-diffusion-2-1-base)); `256x256_diffusion_uncond.pt` ([OpenAI guided-diffusion](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view)) | SD 2.1 was deprecated by Stability AI; uses a Hugging Face duplicate |
-| [R2R](https://github.com/cscxwang/R2R) | CVPR 2026 | `train_ckpt_3D_finetune/` + `save_prompts_3D/` ([Drive](https://drive.google.com/drive/folders/1KAAafchWfLCYthhyRUcc1Xz4iip3kWqF)) | CPU on Mac (MPS adaptive-pooling limit) |
+| [PromptIR](https://github.com/va1shn9v/PromptIR) | NeurIPS 2023 | 3-task all-in-one checkpoint ([Drive](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view)) | Runs on MPS with torch 2.0 |
+| [AdaIR](https://github.com/c-yn/AdaIR) | ICLR 2025 | 3-task checkpoint ([Drive](https://drive.google.com/drive/folders/1x2LN4kWkO3S65jJlH-1INUFiYt8KFzPH)) | Runs on MPS with torch 2.5 |
+| [MoCE-IR](https://github.com/eduardzamfir/MoCE-IR) | CVPR 2025 | `MoCE_IR_AIO3/last.ckpt` ([Drive](https://drive.google.com/drive/folders/1pQBceb8cCPdIzbqbNNGqV5qNXzzqL4uK)) | Runs on MPS with FFT and patch reshape operation on CPU|
+| [DOD](https://github.com/tonia86/DOD) | AAAI 2026 | `stage1.pkl`, `stage2.pkl` ([Drive](https://drive.google.com/drive/folders/1O0BKy9qfWKwJrLwkIl3mG9xx_Z7NLkm-)); SD 2.1-base ([HuggingFace](https://huggingface.co/Manojb/stable-diffusion-2-1-base)); `256x256_diffusion_uncond.pt` ([OpenAI guided-diffusion](https://drive.google.com/file/d/1j-b5Od70pGF7oaCqKAfUzmf-N-xEAjYl/view)) | SD 2.1 was deprecated by Stability AI; uses a Hugging Face duplicate; Runs on MPS with torch 2.5 |
+| [R2R](https://github.com/cscxwang/R2R) | CVPR 2026 | `train_ckpt_3D_finetune/` + `save_prompts_3D/` ([Drive](https://drive.google.com/drive/folders/1KAAafchWfLCYthhyRUcc1Xz4iip3kWqF)) | Runs on MPS with torch 2.5; `area_resize` on the CPU for two resizes|
 | [DATUM](https://github.com/xg416/DATUM) | CVPR 2024 | Static-scene model (repo README) | Turbulence specialist; needs CUDA |
 
 Test-time adaptation: **[DCTTA](https://github.com/tonia86/DCTTA)** (CVPR 2026).
