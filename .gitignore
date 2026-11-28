@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Datasets
+datasets/ATSyn_dynamic/**
+datasets/ATSyn_static/**
+datasets/OTIS_PNG_Color/**
+datasets/sanity_test/output/**
+
+# Results
+results/**
+
+# Checkpoints
+models/AdaIR/ckpt/adair3d.ckpt
+models/DOD/weights/*
+models/DOD/weights/**/*
+models/MoCE-IR/ckpt/**/*
+models/PromptIR/ckpt/**/*

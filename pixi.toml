@@ -1,0 +1,96 @@
+[workspace]
+name = "turb-aio-eval"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]          # add "linux-64" later for a CUDA machine
+
+[feature.adair.dependencies]
+python = "3.10.*"
+pytorch = "2.5.*"
+torchvision = "*"
+lightning = "2.4.*"
+numpy = "<2"
+pillow = "*"
+einops = "*"
+tqdm = "*"
+matplotlib = "*"
+setuptools = "*"
+
+[feature.dod.dependencies]
+python = "3.10.*"
+pytorch = "2.5.*"
+torchvision = "*"
+numpy = "1.26.*"
+pillow = "*"
+matplotlib = "*"
+pyyaml = "*"
+scipy = "*"
+opencv = "*"
+einops = "*"
+tqdm = "*"
+safetensors = "*"
+accelerate = "*"
+diffusers = "==0.25.0"
+transformers = "==4.28.1"
+huggingface_hub = "0.25.*"
+peft = "==0.13.0"
+setuptools = "<70"
+
+[feature.dod.pypi-dependencies]
+basicsr = "==1.4.2"
+
+[feature.moceir.dependencies]
+pytorch = "2.5.*"
+opencv = "*"
+scikit-image = "*"
+scipy = "*"
+fvcore = "*"
+iopath = "*"
+torchmetrics = "*"
+matplotlib = "*"
+lightning = "2.4.*"                
+einops = "*"
+torchvision = "*"
+tqdm = "*"
+setuptools = "<70"      # Lightning 2.0 needs pkg_resources, which newer setuptools dropped
+pillow = "*"
+
+[feature.promptir.dependencies]
+python = "3.10.*"
+pytorch = "2.0.*"                  # same era as the checkpoint's Lightning 2.0
+torchvision = "*"
+lightning = "2.0.*"                # matches the version the checkpoint was saved with
+numpy = "<2"                       # PyTorch 2.0 was built against NumPy 1.x
+pillow = "*"
+matplotlib = "*"
+einops = "*"
+tqdm = "*"
+setuptools = "<70"      # Lightning 2.0 needs pkg_resources, which newer setuptools dropped
+
+[feature.r2r.dependencies]
+scikit-learn = "*"
+scikit-image = "*"
+scipy = "*"
+opencv = "*"
+torchmetrics = "*"
+
+[feature.adair.tasks]
+run-adair = { cmd = "python ../../runners/adair.py", cwd = "models/AdaIR", env = { PYTHONPATH = ".", PYTORCH_ENABLE_MPS_FALLBACK = "1", DEVICE = "mps"} }
+
+[feature.dod.tasks]
+run-dod = { cmd = "python ../../runners/dod.py --pretrained_model_name_or_path weights/sd21 --osediff_path weights/stage1.pkl --nafnet_path weights/stage2.pkl", cwd = "models/DOD", env = { PYTHONPATH = ".", PYTORCH_ENABLE_MPS_FALLBACK = "1", DEVICE = "mps" } }
+
+[feature.moceir.tasks]
+run-moceir = { cmd = "python ../../runners/moceir.py --model MoCE_IR --checkpoint_id MoCE_IR_AIO3 --ckpt_dir ckpt", cwd = "models/MoCE-IR", env = { PYTHONPATH = "src", PYTORCH_ENABLE_MPS_FALLBACK = "1", DEVICE = "mps" } }
+
+[feature.promptir.tasks]
+run-promptir = { cmd = "python ../../runners/promptir.py", cwd = "models/PromptIR", env = { PYTHONPATH = ".", PYTORCH_ENABLE_MPS_FALLBACK = "1", DEVICE = "mps"} }
+
+[feature.r2r.tasks]
+run-r2r = { cmd = "python ../../runners/r2r.py", cwd = "models/R2R", env = { PYTHONPATH = ".", DEVICE = "mps" } }
+
+[environments]
+promptir = ["promptir"]
+adair = ["adair"] # same dependencies; pixi shares the installed packages
+moceir = ["moceir"]   # PromptIR's dependencies + the extras above
+dod = ["dod"]
+r2r = ["promptir", "r2r"]
